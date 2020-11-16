@@ -24,6 +24,8 @@
 package example
 
 import scala.reflect.runtime.universe.{typeOf, TypeTag}
+import scala.reflect.classTag
+import scala.reflect.ClassTag
 
 import com.spotify.scio.ScioContext
 import com.spotify.scio.bigquery._
@@ -100,7 +102,46 @@ ORDER BY publishing_date;
 """)
   class dm_send_date_list
 
-  def bigQueryType = BigQueryType[dm_send_date_list]
+  def toRow[T](r: T, schema: BSchema)(implicit tt: TypeTag[T], ct: ClassTag[T]): Row = {
+    val rs = Row.withSchema(schema)
+    typeOf[T].members.sorted.filter(!_.isMethod).foreach(
+      field => {
+        val name = field.name.toString.trim
+        val fld = classTag[T].runtimeClass.getDeclaredField(name)
+        fld.setAccessible(true)
+        val v = fld.get(r)
+        if (v.isInstanceOf[Option[Object]]) {
+          rs.addValue(localDateToDateTime(v.asInstanceOf[Option[Object]].getOrElse(null)))
+        } else {
+          rs.addValue(localDateToDateTime(v))
+        }
+      }
+    )
+    rs.build()
+  }
+
+  def buildSchema[T: TypeTag]: BSchema = {
+    val schemaBuilder = BSchema.builder()
+    typeOf[T].members.sorted.filter(!_.isMethod).foreach(
+      field => {
+        val name = field.name.toString.trim
+        println(name, field.typeSignature)
+        field.typeSignature match {
+          case typ if typeOf[String] =:= typ => schemaBuilder.addStringField(name)
+          case typ if typeOf[Option[String]] =:= typ => schemaBuilder.addNullableField(name, FieldType.STRING)
+          case typ if typeOf[Instant] =:= typ || typeOf[LocalDate] =:= typ => schemaBuilder.addDateTimeField(name)
+          case typ if typeOf[Option[Instant]] =:= typ || typeOf[Option[LocalDate]] =:= typ => schemaBuilder.addNullableField(name, FieldType.DATETIME)
+          case typ if typ <:< typeOf[Option[Any]] => {
+            schemaBuilder.addNullableField(name, PRIMITIVE_TYPES(typ.typeArgs.head.toString))
+          }
+          case r => {
+            schemaBuilder.addField(name, PRIMITIVE_TYPES(r.toString))
+          }
+        }
+      }
+    )
+    schemaBuilder.build()
+  }
 
   def localDateToDateTime(obj: Object): Object = {
     if (obj == null || !obj.isInstanceOf[LocalDate]) {
@@ -116,54 +157,37 @@ ORDER BY publishing_date;
       .setPlannerName("org.apache.beam.sdk.extensions.sql.zetasql.ZetaSQLQueryPlanner")
     val sc = ScioContext(opts)
 
-    val schemaBuilder = BSchema.builder()
-    typeOf[dm_send_date_list].members.sorted.filter(!_.isMethod).foreach(
-      field => {
-        val name = field.name.toString
-        println(name, field.typeSignature)
-        field.typeSignature match {
-          case typ if typeOf[String] =:= typ => schemaBuilder.addStringField(name)
-          case typ if typeOf[Option[String]] =:= typ => schemaBuilder.addNullableField(name, FieldType.STRING)
-          case typ if typeOf[Instant] =:= typ || typeOf[LocalDate] =:= typ => schemaBuilder.addDateTimeField(name)
-          case typ if typeOf[Option[Instant]] =:= typ || typeOf[Option[LocalDate]] =:= typ => schemaBuilder.addNullableField(name, FieldType.DATETIME)
-          case typ if typ <:< typeOf[Option[Any]] => {
-            println(typ.typeArgs.head)
-            schemaBuilder.addNullableField(name, PRIMITIVE_TYPES(typ.typeArgs.head.toString))
-          }
-          case r => {
-            println("raw", r)
-            schemaBuilder.addField(name, PRIMITIVE_TYPES(r.toString))
-          }
-        }
-      }
-    )
-    val schema = schemaBuilder.build()
-    println(schema)
+    val schema = buildSchema[dm_send_date_list]
     implicit val coderRow = Coder.row(schema)
 
-    
-
     sc.typedBigQueryStorage[dm_send_date_list]()
-      .map(r => {
-        val rs = Row.withSchema(schema)
-        typeOf[dm_send_date_list].members.sorted.filter(!_.isMethod).foreach(
-          field => {
-            val name = field.name.toString.trim
-            val fld = classOf[dm_send_date_list].getDeclaredField(name)
-            fld.setAccessible(true)
-            val v = fld.get(r)
-            if (v.isInstanceOf[Option[Object]]) {
-              rs.addValue(localDateToDateTime(v.asInstanceOf[Option[Object]].getOrElse(null)))
-            } else {
-              rs.addValue(localDateToDateTime(v))
-            }
-          }
-        )
-        rs.build()
-      })
+      .map(toRow(_, schema))
       //.map(r => Row.withSchema(schema).addValue(r.famiy_code.orNull).build())
       .applyTransform(SqlTransform.query("""-- not null、ユニーク性のチェック(dm_send_history_id)
-SELECT * FROM PCOLLECTION
+with uniqueness as (
+SELECT
+  count(1) as count
+FROM
+  PCOLLECTION
+group by
+  publishing_date
+),
+
+num_rows as (
+  SELECT
+    count(1) as num_rows
+  FROM
+    PCOLLECTION
+)
+
+select
+  if(sum(uniqueness.count) = num_rows.num_rows, True, Error("the column dm_send_history_id can include not null rows or duplicated data."))
+FROM
+  uniqueness
+  cross join
+  num_rows
+group by
+  num_rows.num_rows
 ;"""))
 
     val result = sc.run()
