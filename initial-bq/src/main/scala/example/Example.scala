@@ -23,6 +23,8 @@
 // --output=[PROJECT]:[DATASET].[TABLE]"`
 package example
 
+import scala.reflect.runtime.universe.{typeOf, TypeTag}
+
 import com.spotify.scio.ScioContext
 import com.spotify.scio.bigquery._
 import com.spotify.scio.ContextAndArgs
@@ -35,9 +37,23 @@ import org.apache.beam.sdk.values.{PCollectionTuple, TupleTag}
 import org.apache.beam.sdk.values.Row
 import org.apache.beam.sdk.schemas.{Schema => BSchema}
 import org.apache.beam.sdk.options.PipelineOptions
+import org.apache.beam.sdk.schemas.Schema.FieldType
+import org.joda.time.{Instant, LocalDate}
 
 
 object Example {
+  // Class cannot be used as valid map key so use toString.
+  val PRIMITIVE_TYPES = Map(
+    "Byte" -> FieldType.BYTE,
+    "Short" -> FieldType.INT16,
+    "Int" -> FieldType.INT32,
+    "Long" -> FieldType.INT64,
+    "Float" -> FieldType.FLOAT,
+    "Double" -> FieldType.DOUBLE,
+    "Boolean" -> FieldType.BOOLEAN,
+    "BigDecimal" -> FieldType.DECIMAL,
+  )
+
   // Annotate input class with schema inferred from a BigQuery SELECT.
   // Class `Row` will be expanded into a case class with fields from the SELECT query. A companion
   // object will also be generated to provide easy access to original query/table from annotation,
@@ -77,37 +93,79 @@ WITH
       send_class_name = '1_本発送'
   )
 SELECT
-    *
+  *
 FROM
   dm_send_date_list
 ORDER BY publishing_date;
-  """)
+""")
   class dm_send_date_list
 
   def bigQueryType = BigQueryType[dm_send_date_list]
 
+  def localDateToDateTime(obj: Object): Object = {
+    if (obj == null || !obj.isInstanceOf[LocalDate]) {
+      obj
+    } else {
+      obj.asInstanceOf[LocalDate].toDateTimeAtStartOfDay()
+    }
+  }
+
   def main(cmdlineArgs: Array[String]): Unit = {
     val (opts, args) = ScioContext.parseArguments[PipelineOptions](cmdlineArgs)
-    // opts.as(classOf[BeamSqlPipelineOptions])
-    //   .setPlannerName("org.apache.beam.sdk.extensions.sql.zetasql.ZetaSQLQueryPlanner")
+    opts.as(classOf[BeamSqlPipelineOptions])
+      .setPlannerName("org.apache.beam.sdk.extensions.sql.zetasql.ZetaSQLQueryPlanner")
     val sc = ScioContext(opts)
 
-    val output = args("output")
+    val schemaBuilder = BSchema.builder()
+    typeOf[dm_send_date_list].members.sorted.filter(!_.isMethod).foreach(
+      field => {
+        val name = field.name.toString
+        println(name, field.typeSignature)
+        field.typeSignature match {
+          case typ if typeOf[String] =:= typ => schemaBuilder.addStringField(name)
+          case typ if typeOf[Option[String]] =:= typ => schemaBuilder.addNullableField(name, FieldType.STRING)
+          case typ if typeOf[Instant] =:= typ || typeOf[LocalDate] =:= typ => schemaBuilder.addDateTimeField(name)
+          case typ if typeOf[Option[Instant]] =:= typ || typeOf[Option[LocalDate]] =:= typ => schemaBuilder.addNullableField(name, FieldType.DATETIME)
+          case typ if typ <:< typeOf[Option[Any]] => {
+            println(typ.typeArgs.head)
+            schemaBuilder.addNullableField(name, PRIMITIVE_TYPES(typ.typeArgs.head.toString))
+          }
+          case r => {
+            println("raw", r)
+            schemaBuilder.addField(name, PRIMITIVE_TYPES(r.toString))
+          }
+        }
+      }
+    )
+    val schema = schemaBuilder.build()
+    println(schema)
+    implicit val coderRow = Coder.row(schema)
 
-    val schemaRes = BSchema
-        .builder()
-        .addNullableField("year", BSchema.FieldType.INT64)
-        .build()
-
-    implicit def coderRowRes: Coder[Row] = Coder.row(schemaRes)
+    
 
     sc.typedBigQueryStorage[dm_send_date_list]()
-      .map(r => Row.withSchema(schemaRes).addValue(r.year.getOrElse(0)).build())
-      .applyTransform(SqlTransform.query("SELECT * FROM PCOLLECTION"))
-      .saveAsTextFile(output)
+      .map(r => {
+        val rs = Row.withSchema(schema)
+        typeOf[dm_send_date_list].members.sorted.filter(!_.isMethod).foreach(
+          field => {
+            val name = field.name.toString.trim
+            val fld = classOf[dm_send_date_list].getDeclaredField(name)
+            fld.setAccessible(true)
+            val v = fld.get(r)
+            if (v.isInstanceOf[Option[Object]]) {
+              rs.addValue(localDateToDateTime(v.asInstanceOf[Option[Object]].getOrElse(null)))
+            } else {
+              rs.addValue(localDateToDateTime(v))
+            }
+          }
+        )
+        rs.build()
+      })
+      //.map(r => Row.withSchema(schema).addValue(r.famiy_code.orNull).build())
+      .applyTransform(SqlTransform.query("""-- not null、ユニーク性のチェック(dm_send_history_id)
+SELECT * FROM PCOLLECTION
+;"""))
 
     val result = sc.run()
-
-    classOf[dm_send_date_list].getDeclaredFields().foreach(println)
   }
 }
