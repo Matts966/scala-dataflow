@@ -41,6 +41,7 @@ import org.apache.beam.sdk.values.Row
 import org.apache.beam.sdk.schemas.{Schema => BSchema}
 import org.apache.beam.sdk.options.PipelineOptions
 import org.apache.beam.sdk.schemas.Schema.FieldType
+import org.apache.beam.sdk.extensions.sql.BeamSqlUdf
 import org.joda.time.{Instant, LocalDate}
 
 
@@ -153,6 +154,17 @@ ORDER BY publishing_date;
     }
   }
 
+  class Error extends BeamSqlUdf {
+    def eval(): Unit = {
+      sys.error("error")
+      sys.exit(1)
+    }
+  }
+
+  class IsOver18Udf extends BeamSqlUdf {
+    def eval(input: Integer): Boolean = input >= 18
+  }
+
   def main(cmdlineArgs: Array[String]): Unit = {
     val (opts, args) = ScioContext.parseArguments[PipelineOptions](cmdlineArgs)
     opts.as(classOf[BeamSqlPipelineOptions])
@@ -191,6 +203,8 @@ FROM
 group by
   num_rows.num_rows
 ;"""))
+
+  // .applyTransform(SqlTransform.query("""select isUserOver18(10) as isOver18, e() from PCOLLECTION""").registerUdf("e", classOf[Error]).registerUdf("isUserOver18", classOf[IsOver18Udf]))
 
     val result = sc.run()
   }
