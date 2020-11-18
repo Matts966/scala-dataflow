@@ -23,7 +23,8 @@
 // --output=[PROJECT]:[DATASET].[TABLE]"`
 package example
 
-import scala.reflect.runtime.universe.{typeOf, TypeTag}
+
+import scala.reflect.runtime.universe.{typeOf, TypeTag, Type}
 import scala.reflect.classTag
 import scala.reflect.ClassTag
 
@@ -45,16 +46,21 @@ import org.joda.time.{Instant, LocalDate}
 
 object Example {
   // Class cannot be used as valid map key so use toString.
-  val PRIMITIVE_TYPES = Map(
-    "Byte" -> FieldType.BYTE,
-    "Short" -> FieldType.INT16,
-    "Int" -> FieldType.INT32,
-    "Long" -> FieldType.INT64,
-    "Float" -> FieldType.FLOAT,
-    "Double" -> FieldType.DOUBLE,
-    "Boolean" -> FieldType.BOOLEAN,
-    "BigDecimal" -> FieldType.DECIMAL,
-  )
+  def PRIMITIVE_TYPES(typ: Type): FieldType = {
+    if (typ =:= typeOf[String]) FieldType.STRING
+    else Map(
+      typeOf[Byte] -> FieldType.BYTE,
+      typeOf[Short] -> FieldType.INT16,
+      typeOf[Int] -> FieldType.INT32,
+      typeOf[Long] -> FieldType.INT64,
+      typeOf[Float] -> FieldType.FLOAT,
+      typeOf[Double] -> FieldType.DOUBLE,
+      typeOf[Boolean] -> FieldType.BOOLEAN,
+      typeOf[BigDecimal] -> FieldType.DECIMAL,
+      typeOf[Instant] -> FieldType.DATETIME,
+      typeOf[LocalDate] -> FieldType.DATETIME,
+    )(typ)
+  }
 
   // Annotate input class with schema inferred from a BigQuery SELECT.
   // Class `Row` will be expanded into a case class with fields from the SELECT query. A companion
@@ -127,15 +133,11 @@ ORDER BY publishing_date;
         val name = field.name.toString.trim
         println(name, field.typeSignature)
         field.typeSignature match {
-          case typ if typeOf[String] =:= typ => schemaBuilder.addStringField(name)
-          case typ if typeOf[Option[String]] =:= typ => schemaBuilder.addNullableField(name, FieldType.STRING)
-          case typ if typeOf[Instant] =:= typ || typeOf[LocalDate] =:= typ => schemaBuilder.addDateTimeField(name)
-          case typ if typeOf[Option[Instant]] =:= typ || typeOf[Option[LocalDate]] =:= typ => schemaBuilder.addNullableField(name, FieldType.DATETIME)
           case typ if typ <:< typeOf[Option[Any]] => {
-            schemaBuilder.addNullableField(name, PRIMITIVE_TYPES(typ.typeArgs.head.toString))
+            schemaBuilder.addNullableField(name, PRIMITIVE_TYPES(typ.typeArgs.head))
           }
           case r => {
-            schemaBuilder.addField(name, PRIMITIVE_TYPES(r.toString))
+            schemaBuilder.addField(name, PRIMITIVE_TYPES(r))
           }
         }
       }
