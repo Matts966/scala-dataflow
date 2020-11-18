@@ -70,7 +70,6 @@ object Example {
   @BigQueryType.fromQuery("""
 WITH
   UNIQUE AS (
-    -- 世帯間によって異なっているsend_dateをMAXで統一
     SELECT
       monthly_number_name,
       MAX(send_date) AS publishing_date,
@@ -87,13 +86,10 @@ WITH
     SELECT
       CAST(SUBSTR(monthly_number_name, 0, 4) AS int64) AS year,
       CAST(SUBSTR(monthly_number_name, 6, 2) AS int64) AS month,
-      -- 本誌の発送先を予測する日付(発送日の８週間前に予測する必要がある)
       DATE_SUB(publishing_date, INTERVAL 8 week) AS deemed_prediction_date,
       *,
-      -- 前月号のpublishing_date
       DATE_SUB(LAG(publishing_date) OVER (
           ORDER BY publishing_date DESC), INTERVAL 1 DAY) AS end_date,
-      -- 最新と前月号のpublishing_dateの差分
       DATE_DIFF(LAG(publishing_date) OVER (
           ORDER BY publishing_date DESC), publishing_date, DAY) - 1 AS duration
     FROM
@@ -177,7 +173,7 @@ ORDER BY publishing_date;
     sc.typedBigQueryStorage[dm_send_date_list]()
       .map(toRow(_, schema))
       //.map(r => Row.withSchema(schema).addValue(r.famiy_code.orNull).build())
-      .applyTransform(SqlTransform.query("""-- not null、ユニーク性のチェック(dm_send_history_id)
+      .applyTransform(SqlTransform.query("""-- not null、ユニーク性のチェック(history_id)
 with uniqueness as (
 SELECT
   count(1) as count
@@ -195,7 +191,7 @@ num_rows as (
 )
 
 select
-  if(sum(uniqueness.count) = num_rows.num_rows, True, Error("the column dm_send_history_id can include not null rows or duplicated data."))
+  if(sum(uniqueness.count) = num_rows.num_rows, True, Error("the column history_id can include not null rows or duplicated data."))
 FROM
   uniqueness
   cross join
