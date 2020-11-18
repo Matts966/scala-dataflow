@@ -1,0 +1,10 @@
+[0m[[0m[0minfo[0m] [0m[0m:: delivering :: default#scala-dataflow_2.12;0.1.0-SNAPSHOT :: 0.1.0-SNAPSHOT :: integration :: Wed Nov 18 22:12:25 JST 2020[0m[0J
+[0m[[0m[0mdebug[0m] [0m[0m	options = status=integration pubdate=Wed Nov 18 22:12:25 JST 2020 validate=true resolveDynamicRevisions=true merge=true resolveId=null pubBranch=null[0m[0J
+[0m[[0m[0minfo[0m] [0m[0m	delivering ivy file to /Users/matts966/scala-dataflow/target/scala-2.12/ivy-0.1.0-SNAPSHOT.xml[0m[0J
+[0m[[0m[0mdebug[0m] [0m[0m	deliver done (31ms)[0m[0J
+[0m[[0m[0mdebug[0m] [0m[0mlocal do not support transaction. ivy pattern does not use revision as a directory[0m[0J
+[0m[[0m[0minfo[0m] [0m[0m	published scala-dataflow_2.12 to /Users/matts966/.ivy2/local/default/scala-dataflow_2.12/0.1.0-SNAPSHOT/poms/scala-dataflow_2.12.pom[0m[0J
+[0m[[0m[0minfo[0m] [0m[0m	published scala-dataflow_2.12 to /Users/matts966/.ivy2/local/default/scala-dataflow_2.12/0.1.0-SNAPSHOT/jars/scala-dataflow_2.12.jar[0m[0J
+[0m[[0m[0minfo[0m] [0m[0m	published scala-dataflow_2.12 to /Users/matts966/.ivy2/local/default/scala-dataflow_2.12/0.1.0-SNAPSHOT/srcs/scala-dataflow_2.12-sources.jar[0m[0J
+[0m[[0m[0minfo[0m] [0m[0m	published scala-dataflow_2.12 to /Users/matts966/.ivy2/local/default/scala-dataflow_2.12/0.1.0-SNAPSHOT/docs/scala-dataflow_2.12-javadoc.jar[0m[0J
+[0m[[0m[0minfo[0m] [0m[0m	published ivy to /Users/matts966/.ivy2/local/default/scala-dataflow_2.12/0.1.0-SNAPSHOT/ivys/ivy.xml[0m[0J
